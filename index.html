@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Executive Dashboard Anti-Churn</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js & Datalabels Plugin -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+    <!-- PapaParse for CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        body { background-color: #0e1117; color: #fafafa; font-family: system-ui, -apple-system, sans-serif; }
+        .card-bg { background-color: #161b22; border: 1px solid #30363d; }
+        .pill-container { background-color: #161b22; border: 1px solid #30363d; }
+        
+        /* Animasi Kustom untuk kelancaran UI */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in-up {
+            animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        }
+        
+        .metric-value { transition: color 0.3s ease-in-out; }
+    </style>
+</head>
+<body class="p-4 md:p-8 relative">
+
+    <!-- 1. LOADING SCREEN OVERLAY -->
+    <div id="loadingOverlay" class="fixed inset-0 z-50 flex items-center justify-center bg-[#0e1117] bg-opacity-95 backdrop-blur-sm transition-opacity duration-700">
+        <div class="flex flex-col items-center">
+            <div class="w-14 h-14 border-4 border-blue-900 border-t-blue-500 rounded-full animate-spin"></div>
+            <p class="mt-4 text-blue-400 font-semibold animate-pulse tracking-wide">Sinkronisasi...</p>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header & 2. LAST UPDATED BADGE DENGAN AUTO-SYNC -->
+        <div class="border-b border-gray-800 pb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+            <div>
+                <h1 class="text-2xl md:text-3xl font-bold text-blue-400">Dashboard Anti-Churn & Revenue</h1>
+                <p class="text-gray-400 text-sm mt-1">Monitoring performa operasional, akumulasi, standalone, dan recurring nasional.</p>
+                <!-- Mobile Last Updated -->
+                <span class="inline-flex md:hidden items-center gap-1.5 mt-3 px-2.5 py-1 rounded-md bg-green-900/30 border border-green-800 text-green-400 text-xs font-medium">
+                    <svg class="sync-icon hidden w-3 h-3 animate-spin text-green-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span class="live-indicator w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    Live • <span class="last-updated-text">Memuat...</span>
+                </span>
+            </div>
+            <!-- Desktop Last Updated -->
+            <div class="hidden md:block">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-900/20 border border-green-800/50 text-green-400 text-xs font-medium shadow-sm transition-all">
+                    <svg class="sync-icon hidden w-3 h-3 animate-spin text-green-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    <span class="live-indicator w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_#22c55e]"></span>
+                    Last Update : <span class="last-updated-text font-bold">Memuat...</span>
+                </span>
+            </div>
+        </div>
+
+        <!-- Pill Navigation Switcher (Tab Utama) -->
+        <div class="flex flex-wrap justify-between items-center gap-4">
+            <div class="pill-container p-1 rounded-xl inline-flex gap-1">
+                <button onclick="switchTab('akumulasi')" id="tab-btn-akumulasi" class="px-5 py-2 text-sm font-semibold rounded-lg transition-all duration-300 bg-blue-600 text-white shadow-md transform scale-105">Akumulasi</button>
+                <button onclick="switchTab('standalone')" id="tab-btn-standalone" class="px-5 py-2 text-sm font-semibold rounded-lg transition-all duration-300 text-gray-400 hover:text-white">Standalone</button>
+                <button onclick="switchTab('recurring')" id="tab-btn-recurring" class="px-5 py-2 text-sm font-semibold rounded-lg transition-all duration-300 text-gray-400 hover:text-white">Recurring</button>
+            </div>
+
+            <!-- Metric Switcher Toggle (Revenue vs Transaksi) -->
+            <div class="pill-container p-1 rounded-xl inline-flex gap-1">
+                <button onclick="setMetricType('revenue')" id="btn-metric-revenue" class="px-4 py-1.5 text-xs font-semibold rounded-lg transition-all duration-300 bg-emerald-600 text-white shadow transform scale-105">Revenue</button>
+                <button onclick="setMetricType('transaksi')" id="btn-metric-transaksi" class="px-4 py-1.5 text-xs font-semibold rounded-lg transition-all duration-300 text-gray-400 hover:text-white">Jumlah Transaksi</button>
+            </div>
+        </div>
+
+        <!-- Filter Panel -->
+        <div class="card-bg p-4 rounded-xl grid grid-cols-1 md:grid-cols-4 gap-4 hover:border-gray-600 transition-colors duration-300">
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 mb-1 transition-colors">SBU / REGIONAL</label>
+                <select id="filterSBU" class="w-full bg-[#0e1117] border border-gray-700 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-all cursor-pointer" onchange="onSBUChange()">
+                    <option value="ALL">Semua SBU</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 mb-1">KANTOR PERWAKILAN (KP)</label>
+                <select id="filterKP" class="w-full bg-[#0e1117] border border-gray-700 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-all cursor-pointer" onchange="updateDashboard()">
+                    <option value="ALL">Semua KP</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-gray-400 mb-1">PERIODE BULAN</label>
+                <select id="filterPeriode" class="w-full bg-[#0e1117] border border-gray-700 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-blue-500 transition-all cursor-pointer" onchange="updateDashboard()">
+                    <option value="ALL">Semua Periode</option>
+                </select>
+            </div>
+            <div class="flex items-end">
+                <button onclick="resetFilters()" class="w-full bg-gray-700 hover:bg-gray-600 active:scale-95 text-white font-medium text-sm py-2 px-4 rounded-lg transition-all duration-200">Reset Filter</button>
+            </div>
+        </div>
+
+        <!-- 3. EMPTY STATE WARNING -->
+        <div id="emptyStateWarning" class="hidden bg-yellow-900/20 border border-yellow-700/50 text-yellow-400 p-4 rounded-xl flex items-center gap-4 fade-in-up">
+            <svg class="w-7 h-7 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            <div>
+                <p class="font-semibold text-sm">Tidak Ada Data Transaksi</p>
+                <p class="text-xs mt-1 opacity-80">Kombinasi filter yang Anda pilih belum memiliki rekam transaksi. Silakan sesuaikan kembali periode atau wilayah kerja.</p>
+            </div>
+        </div>
+
+        <!-- Metric Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="card-bg p-5 rounded-xl hover:border-gray-600 transition-all duration-300 transform hover:-translate-y-1">
+                <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Follow-Up</p>
+                <h3 id="metricFollowup" class="metric-value text-2xl font-bold text-amber-400 mt-2">0 Pelanggan</h3>
+            </div>
+            <div class="card-bg p-5 rounded-xl relative hover:border-gray-600 transition-all duration-300 transform hover:-translate-y-1">
+                <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider transition-all duration-300" id="labelMetricRev">Total Revenue Akumulasi</p>
+                <h3 id="metricRevAcc" class="metric-value text-2xl font-bold text-green-400 mt-2">Rp 0</h3>
+                <div id="targetRevBadge" class="absolute top-5 right-5 text-xs font-bold px-2 py-1 rounded hidden transition-all duration-300 shadow-md"></div>
+            </div>
+            <div class="card-bg p-5 rounded-xl relative hover:border-gray-600 transition-all duration-300 transform hover:-translate-y-1">
+                <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider transition-all duration-300" id="labelMetricTrx">Total Transaksi Akumulasi</p>
+                <h3 id="metricTrx" class="metric-value text-2xl font-bold text-purple-400 mt-2">0</h3>
+                <div id="targetTrxBadge" class="absolute top-5 right-5 text-xs font-bold px-2 py-1 rounded hidden transition-all duration-300 shadow-md"></div>
+            </div>
+        </div>
+
+        <!-- SECTION: AKUMULASI -->
+        <div id="section-akumulasi" class="space-y-6 fade-in-up">
+            <div class="card-bg p-5 rounded-xl border-t-4 border-t-blue-600">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="titleChartAcc" class="text-sm font-semibold text-gray-300 transition-all duration-300">📈 Trajektori Pertumbuhan Kumulatif</h3>
+                    <span id="chartModeLabel" class="text-xs bg-blue-900/40 text-blue-300 px-3 py-1 rounded-full border border-blue-700/50 transition-all duration-300">Mode: Bulanan</span>
+                </div>
+                <div class="relative h-72">
+                    <canvas id="chartAccumulated"></canvas>
+                </div>
+            </div>
+
+            <div class="card-bg p-5 rounded-xl">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="titleChartSBUAcc" class="text-sm font-semibold text-gray-300">Kontribusi Akumulasi per SBU</h3>
+                    <span class="text-xs bg-green-900/40 text-green-300 px-3 py-1 rounded-full border border-green-700/50">Akumulasi</span>
+                </div>
+                <div class="relative h-72">
+                    <canvas id="chartSBUAcc"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION: STANDALONE -->
+        <div id="section-standalone" class="space-y-6 hidden">
+            <div class="card-bg p-5 rounded-xl border-t-4 border-t-blue-600">
+                <h3 id="titleChartSA" class="text-sm font-semibold text-gray-300 mb-4 transition-all duration-300">📈 Tren Harian Stand-Alone</h3>
+                <div class="relative h-72">
+                    <canvas id="chartStandalone"></canvas>
+                </div>
+            </div>
+
+            <div class="card-bg p-5 rounded-xl">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="titleChartSBU" class="text-sm font-semibold text-gray-300">Kontribusi Standalone per SBU</h3>
+                    <span class="text-xs bg-blue-900/40 text-blue-300 px-3 py-1 rounded-full border border-blue-700/50">Standalone</span>
+                </div>
+                <div class="relative h-72">
+                    <canvas id="chartSBU"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION: RECURRING -->
+        <div id="section-recurring" class="space-y-6 hidden">
+            <div class="card-bg p-5 rounded-xl border-t-4 border-t-blue-600">
+                <h3 id="titleChartRec" class="text-sm font-semibold text-gray-300 mb-4">📈 Tren Harian Recurring</h3>
+                <div class="relative h-72">
+                    <canvas id="chartRecurring"></canvas>
+                </div>
+            </div>
+
+            <div class="card-bg p-5 rounded-xl">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="titleChartSBURec" class="text-sm font-semibold text-gray-300">Kontribusi Recurring per SBU</h3>
+                    <span class="text-xs bg-purple-900/40 text-purple-300 px-3 py-1 rounded-full border border-purple-700/50">Recurring</span>
+                </div>
+                <div class="relative h-72">
+                    <canvas id="chartSBURec"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        Chart.register(ChartDataLabels);
+
+        // ⚠️ GANTI DENGAN LINK PUBLISH TO WEB ANDA YANG BARU
+        const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSGw6E8X8kn7zRv7u6mRY-uY_zmc7NSbl2BCJzhJBODjPpIY-O_cuoWPTET_0gqrqXmR5DdO48rMH20/pub?gid=1399065441&single=true&output=csv";
+
+        const sbuMapping = {
+            "BALI & NUSA TENGGARA": "BNT", "SUMATERA BAGIAN UTARA": "SBU", "SUMATERA BAGIAN SELATAN": "SBS",
+            "JAWA BAGIAN TIMUR": "JBT", "SUMATERA BAGIAN TENGAH": "SBT", "JAWA BAGIAN TENGAH": "JBTG",
+            "KALIMANTAN": "KAL", "SULAWESI & INDONESIA TIMUR": "SIBT", "JAWA BAGIAN BARAT": "JBB", "JAKARTA & BANTEN": "JKB"
+        };
+
+        function getSBUName(fullName) {
+            if (!fullName) return "";
+            let clean = fullName.trim().toUpperCase();
+            return sbuMapping[clean] || fullName;
+        }
+
+        let rawData = [];
+        let filteredData = [];
+        let currentTab = 'akumulasi';
+        let currentMetric = 'revenue';
+        
+        let chartSA = null, chartAcc = null, chartSBU = null, chartSBUAcc = null, chartRec = null, chartSBURec = null;
+        let latestMonth = ""; 
+        let animationIds = {};
+        
+        // Interval Refresh (5 Menit = 300000 ms)
+        const REFRESH_INTERVAL_MS = 300000; 
+
+        function animateValue(id, start, end, duration, formatter) {
+            let obj = document.getElementById(id);
+            if (animationIds[id]) window.cancelAnimationFrame(animationIds[id]);
+            
+            let startTimestamp = null;
+            const step = (timestamp) => {
+                if (!startTimestamp) startTimestamp = timestamp;
+                const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                const easeOut = 1 - Math.pow(1 - progress, 3); 
+                const currentVal = Math.floor(easeOut * (end - start) + start);
+                
+                obj.innerText = formatter(currentVal);
+                
+                if (progress < 1) {
+                    animationIds[id] = window.requestAnimationFrame(step);
+                } else {
+                    obj.innerText = formatter(end); 
+                }
+            };
+            animationIds[id] = window.requestAnimationFrame(step);
+        }
+
+        // FUNGSI PENGAMBILAN DATA & AUTO SYNC
+        function loadData(isBackground = false) {
+            if (isBackground) {
+                document.querySelectorAll('.sync-icon').forEach(el => el.classList.remove('hidden'));
+                document.querySelectorAll('.live-indicator').forEach(el => el.classList.add('hidden'));
+            }
+
+            // Tambahkan parameter penangkal cache (?_t=waktu)
+            let fetchUrl = CSV_URL + (CSV_URL.includes('?') ? '&' : '?') + "_t=" + new Date().getTime();
+
+            Papa.parse(fetchUrl, {
+                download: true,
+                header: true,
+                dynamicTyping: true,
+                complete: function(results) {
+                    rawData = results.data.filter(row => row.TanggalBayar && row.SBU);
+                    
+                    let selSBU = document.getElementById("filterSBU") ? document.getElementById("filterSBU").value : "ALL";
+                    let selKP = document.getElementById("filterKP") ? document.getElementById("filterKP").value : "ALL";
+                    let selPeriode = document.getElementById("filterPeriode") ? document.getElementById("filterPeriode").value : "ALL";
+                    
+                    initFilters();
+                    
+                    if(document.getElementById("filterSBU")) document.getElementById("filterSBU").value = selSBU;
+                    updateKPFilterOptions();
+                    if(document.getElementById("filterKP")) document.getElementById("filterKP").value = selKP;
+                    if(document.getElementById("filterPeriode")) document.getElementById("filterPeriode").value = selPeriode;
+
+                    updateDashboard();
+                    
+                    // MEMBACA KOLOM 'Waktu_Update' DARI COLAB
+                    let actualUpdateTime = "Waktu Tidak Diketahui";
+                    if (rawData.length > 0 && rawData[0].Waktu_Update) {
+                        actualUpdateTime = rawData[0].Waktu_Update + ' WIB';
+                    }
+                    document.querySelectorAll('.last-updated-text').forEach(el => el.innerText = actualUpdateTime);
+
+                    if (!isBackground) {
+                        const loader = document.getElementById('loadingOverlay');
+                        loader.style.opacity = '0';
+                        setTimeout(() => loader.style.display = 'none', 700);
+                    } else {
+                        document.querySelectorAll('.sync-icon').forEach(el => el.classList.add('hidden'));
+                        document.querySelectorAll('.live-indicator').forEach(el => el.classList.remove('hidden'));
+                    }
+                },
+                error: function(err) {
+                    console.error("Gagal melakukan sinkronisasi data:", err);
+                    if (isBackground) {
+                        document.querySelectorAll('.sync-icon').forEach(el => el.classList.add('hidden'));
+                        document.querySelectorAll('.live-indicator').forEach(el => el.classList.remove('hidden'));
+                    }
+                }
+            });
+        }
+
+        window.onload = function() {
+            if(CSV_URL.includes("MASUKKAN_LINK")) {
+                alert("⚠️ Harap masukkan URL CSV Google Sheet Anda pada variabel CSV_URL di dalam kode HTML!");
+                return;
+            }
+            loadData(false);
+            setInterval(() => { loadData(true); }, REFRESH_INTERVAL_MS);
+        };
+
+        function switchTab(tab) {
+            currentTab = tab;
+            ['akumulasi', 'standalone', 'recurring'].forEach(t => {
+                let btn = document.getElementById(`tab-btn-${t}`);
+                let sec = document.getElementById(`section-${t}`);
+                if(t === tab) {
+                    btn.className = "px-5 py-2 text-sm font-semibold rounded-lg transition-all duration-300 bg-blue-600 text-white shadow-md transform scale-105";
+                    sec.classList.remove('hidden');
+                    sec.classList.remove('fade-in-up');
+                    void sec.offsetWidth; 
+                    sec.classList.add('fade-in-up');
+                } else {
+                    btn.className = "px-5 py-2 text-sm font-semibold rounded-lg transition-all duration-300 text-gray-400 hover:text-white";
+                    sec.classList.add('hidden');
+                }
+            });
+            updateDashboard();
+        }
+
+        function setMetricType(metric) {
+            currentMetric = metric;
+            let btnRev = document.getElementById('btn-metric-revenue');
+            let btnTrx = document.getElementById('btn-metric-transaksi');
+
+            if (metric === 'revenue') {
+                btnRev.className = "px-4 py-1.5 text-xs font-semibold rounded-lg transition-all duration-300 bg-emerald-600 text-white shadow transform scale-105";
+                btnTrx.className = "px-4 py-1.5 text-xs font-semibold rounded-lg transition-all duration-300 text-gray-400 hover:text-white";
+            } else {
+                btnTrx.className = "px-4 py-1.5 text-xs font-semibold rounded-lg transition-all duration-300 bg-purple-600 text-white shadow transform scale-105";
+                btnRev.className = "px-4 py-1.5 text-xs font-semibold rounded-lg transition-all duration-300 text-gray-400 hover:text-white";
+            }
+            updateDashboard();
+        }
+
+        function initFilters() {
+            let sbus = [...new Set(rawData.map(d => d.SBU))].sort();
+            let periodes = [...new Set(rawData.map(d => {
+                if(!d.TanggalBayar) return null;
+                return String(d.TanggalBayar).substring(0, 7);
+            }))].filter(Boolean).sort().reverse();
+            
+            if(periodes.length > 0) latestMonth = periodes[0];
+
+            populateSBUSelect(sbus);
+            updateKPFilterOptions();
+            
+            let selectPeriode = document.getElementById("filterPeriode");
+            selectPeriode.innerHTML = `<option value="ALL">Semua Periode</option>`;
+            periodes.forEach(p => {
+                selectPeriode.innerHTML += `<option value="${p}">${formatNamaBulan(p)}</option>`;
+            });
+        }
+
+        function populateSBUSelect(items) {
+            let select = document.getElementById("filterSBU");
+            select.innerHTML = `<option value="ALL">Semua SBU</option>`;
+            items.forEach(item => {
+                if(item) select.innerHTML += `<option value="${item}">${getSBUName(item)}</option>`;
+            });
+        }
+
+        function updateKPFilterOptions() {
+            let selSBU = document.getElementById("filterSBU").value;
+            let kpSelect = document.getElementById("filterKP");
+            let currentSelectedKP = kpSelect.value;
+
+            let relevantData = (selSBU === "ALL") ? rawData : rawData.filter(d => d.SBU === selSBU);
+            let kps = [...new Set(relevantData.map(d => d.KP))].filter(Boolean).sort();
+
+            kpSelect.innerHTML = `<option value="ALL">Semua KP</option>`;
+            kps.forEach(kp => { kpSelect.innerHTML += `<option value="${kp}">${kp}</option>`; });
+
+            if(kps.includes(currentSelectedKP)) { kpSelect.value = currentSelectedKP; } 
+            else { kpSelect.value = "ALL"; }
+        }
+
+        function onSBUChange() {
+            updateKPFilterOptions();
+            updateDashboard();
+        }
+
+        function formatNamaBulan(yyyymm) {
+            let [y, m] = yyyymm.split('-');
+            const namaBulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+            let idx = parseInt(m, 10) - 1;
+            return namaBulan[idx] ? `${namaBulan[idx]} ${y}` : yyyymm;
+        }
+
+        function resetFilters() {
+            document.getElementById("filterSBU").value = "ALL";
+            updateKPFilterOptions();
+            document.getElementById("filterKP").value = "ALL";
+            document.getElementById("filterPeriode").value = "ALL";
+            updateDashboard();
+        }
+
+        function getProcessedDailyData(targetSBU, targetKP, targetPeriode) {
+            let baseFiltered = rawData.filter(d => {
+                let tgl = String(d.TanggalBayar || '');
+                return (targetSBU === "ALL" || d.SBU === targetSBU) && (targetKP === "ALL" || d.KP === targetKP) && (targetPeriode === "ALL" || tgl.startsWith(targetPeriode));
+            });
+
+            if (baseFiltered.length === 0) return { dailyTotals: {}, latestValues: { rev: 0, trx: 0 } };
+
+            let allDates = [...new Set(baseFiltered.map(d => d.TanggalBayar))].filter(Boolean).sort();
+            let allTypes = [...new Set(rawData.map(d => d.Type))].filter(Boolean);
+            let allUnits = [...new Set(baseFiltered.map(d => `${d.SBU}|${d.KP}`))];
+
+            let rawMap = {};
+            baseFiltered.forEach(d => {
+                let unit = `${d.SBU}|${d.KP}`; let key = `${unit}_${d.Type}_${d.TanggalBayar}`;
+                rawMap[key] = {
+                    rev_acc: Number(d.Revenue_Akumulasi) || 0, trx_acc: Number(d.Transaksi_Akumulasi) || 0,
+                    rev_sa: Number(d.Revenue_Standalone) || 0, trx_sa: Number(d.Transaksi_Standalone) || 0,
+                    rev_rec: Number(d.Revenue_Recurring) || 0, trx_rec: Number(d.Transaksi_Recurring) || 0,
+                    tgt_rev_acc: Number(d.Target_Rev_Akumulasi) || 0, tgt_trx_acc: Number(d.Target_Trx_Akumulasi) || 0,
+                    tgt_rev_sa: Number(d.Target_Rev_Standalone) || 0, tgt_trx_sa: Number(d.Target_Trx_Standalone) || 0
+                };
+            });
+
+            let runningState = {}; let dailyTotals = {}; let latestValues = { rev: 0, trx: 0 };
+
+            allDates.forEach(date => {
+                let dayRevAcc = 0, dayTrxAcc = 0, dayRevSA = 0, dayTrxSA = 0, dayRevRec = 0, dayTrxRec = 0;
+
+                allUnits.forEach(unit => {
+                    allTypes.forEach(type => {
+                        let stateKey = `${unit}_${type}`; let rawKey = `${unit}_${type}_${date}`;
+                        if (rawMap[rawKey]) {
+                            runningState[stateKey] = { ...rawMap[rawKey] };
+                            dayRevSA += rawMap[rawKey].rev_sa; dayTrxSA += rawMap[rawKey].trx_sa;
+                            dayRevRec += rawMap[rawKey].rev_rec; dayTrxRec += rawMap[rawKey].trx_rec;
+                        } else if (!runningState[stateKey]) { runningState[stateKey] = { rev_acc: 0, trx_acc: 0 }; }
+                        dayRevAcc += runningState[stateKey].rev_acc; dayTrxAcc += runningState[stateKey].trx_acc;
+                    });
+                });
+
+                let dTargetRevAcc = 0, dTargetTrxAcc = 0, dTargetRevSA = 0, dTargetTrxSA = 0;
+                let recordsToday = baseFiltered.filter(d => d.TanggalBayar === date);
+                let uniqueSBUs = [...new Set(recordsToday.map(d => d.SBU))];
+                uniqueSBUs.forEach(sbu => {
+                    let sbuData = recordsToday.find(d => d.SBU === sbu);
+                    dTargetRevAcc += Number(sbuData.Target_Rev_Akumulasi) || 0; dTargetTrxAcc += Number(sbuData.Target_Trx_Akumulasi) || 0;
+                    dTargetRevSA += Number(sbuData.Target_Rev_Standalone) || 0; dTargetTrxSA += Number(sbuData.Target_Trx_Standalone) || 0;
+                });
+
+                dailyTotals[date] = { 
+                    rev_acc: dayRevAcc, trx_acc: dayTrxAcc, rev_sa: dayRevSA, trx_sa: dayTrxSA, rev_rec: dayRevRec, trx_rec: dayTrxRec,
+                    tgt_rev_acc: dTargetRevAcc, tgt_trx_acc: dTargetTrxAcc, tgt_rev_sa: dTargetRevSA, tgt_trx_sa: dTargetTrxSA
+                };
+                latestValues = { rev: dayRevAcc, trx: dayTrxAcc };
+            });
+
+            return { dailyTotals, latestValues };
+        }
+
+        function getSBUBreakdown(targetSBU, targetPeriode) {
+            let baseFiltered = rawData.filter(d => {
+                let tgl = String(d.TanggalBayar || '');
+                return (targetSBU === "ALL" || d.SBU === targetSBU) && (targetPeriode === "ALL" || tgl.startsWith(targetPeriode));
+            });
+
+            if (baseFiltered.length === 0) return {};
+
+            let isSBUSelected = (targetSBU !== "ALL"); let result = {};
+            let units = [...new Set(baseFiltered.map(d => isSBUSelected ? d.KP : d.SBU))].filter(Boolean);
+
+            units.forEach(u => {
+                let unitData = baseFiltered.filter(d => (isSBUSelected ? d.KP : d.SBU) === u);
+                let maxDate = unitData.reduce((max, obj) => obj.TanggalBayar > max ? obj.TanggalBayar : max, '2000-01-01');
+                let lastRecords = unitData.filter(d => d.TanggalBayar === maxDate);
+                let finalVal = 0; let finalTgt = 0;
+
+                if (currentTab === 'akumulasi') {
+                    let valRev = 0, valTrx = 0;
+                    lastRecords.forEach(r => { valRev += Number(r.Revenue_Akumulasi) || 0; valTrx += Number(r.Transaksi_Akumulasi) || 0; });
+                    finalVal = currentMetric === 'revenue' ? valRev : valTrx;
+                    finalTgt = currentMetric === 'revenue' ? (Number(lastRecords[0].Target_Rev_Akumulasi) || 0) : (Number(lastRecords[0].Target_Trx_Akumulasi) || 0);
+                } else if (currentTab === 'standalone') {
+                    let valRev = 0, valTrx = 0;
+                    unitData.forEach(d => { valRev += Number(d.Revenue_Standalone) || 0; valTrx += Number(d.Transaksi_Standalone) || 0; });
+                    let uniqueMonths = [...new Set(unitData.map(d => String(d.TanggalBayar).substring(0,7)))];
+                    let sumTgtRev = 0, sumTgtTrx = 0;
+                    uniqueMonths.forEach(m => {
+                        let firstRec = unitData.find(d => String(d.TanggalBayar).startsWith(m));
+                        sumTgtRev += Number(firstRec.Target_Rev_Standalone) || 0; sumTgtTrx += Number(firstRec.Target_Trx_Standalone) || 0;
+                    });
+                    finalVal = currentMetric === 'revenue' ? valRev : valTrx;
+                    finalTgt = currentMetric === 'revenue' ? sumTgtRev : sumTgtTrx;
+                } else if (currentTab === 'recurring') {
+                    let valRev = 0, valTrx = 0;
+                    unitData.forEach(d => { valRev += Number(d.Revenue_Recurring) || 0; valTrx += Number(d.Transaksi_Recurring) || 0; });
+                    finalVal = currentMetric === 'revenue' ? valRev : valTrx; finalTgt = 0; 
+                }
+
+                if (finalVal > 0) {
+                    let displayKey = isSBUSelected ? u : getSBUName(u);
+                    result[displayKey] = { val: finalVal, tgt: finalTgt, full: u };
+                }
+            });
+
+            return result;
+        }
+
+        function updateDashboard() {
+            let selSBU = document.getElementById("filterSBU").value;
+            let selKP = document.getElementById("filterKP").value;
+            let selPeriode = document.getElementById("filterPeriode").value;
+
+            let showTargetLine = (selPeriode === "ALL") && (currentTab !== 'recurring');
+
+            filteredData = rawData.filter(d => {
+                let tgl = String(d.TanggalBayar || '');
+                let matchPeriode = (selPeriode === "ALL" || tgl.startsWith(selPeriode));
+                return (selSBU === "ALL" || d.SBU === selSBU) && (selKP === "ALL" || d.KP === selKP) && matchPeriode;
+            });
+
+            const emptyState = document.getElementById("emptyStateWarning");
+            if (filteredData.length === 0) emptyState.classList.remove('hidden');
+            else emptyState.classList.add('hidden');
+
+            let totalFollowup = filteredData.length;
+            let processed = getProcessedDailyData(selSBU, selKP, selPeriode);
+            
+            let totalRev = 0; let totalTrx = 0;
+            
+            if (currentTab === 'akumulasi') {
+                totalRev = processed.latestValues.rev; totalTrx = processed.latestValues.trx;
+            } else if (currentTab === 'standalone') {
+                totalRev = filteredData.reduce((sum, d) => sum + (Number(d.Revenue_Standalone) || 0), 0);
+                totalTrx = filteredData.reduce((sum, d) => sum + (Number(d.Transaksi_Standalone) || 0), 0);
+            } else if (currentTab === 'recurring') {
+                totalRev = filteredData.reduce((sum, d) => sum + (Number(d.Revenue_Recurring) || 0), 0);
+                totalTrx = filteredData.reduce((sum, d) => sum + (Number(d.Transaksi_Recurring) || 0), 0);
+            }
+
+            if (currentTab !== 'recurring') {
+                let grandTgtRev = 0, grandTgtTrx = 0;
+                let tData = rawData.filter(d => (selSBU === "ALL" || d.SBU === selSBU));
+                
+                let uniqueSBUs = [...new Set(tData.map(d=>d.SBU))];
+                uniqueSBUs.forEach(sbu => {
+                    let sbuRecords = tData.filter(d => d.SBU === sbu);
+                    if (currentTab === 'akumulasi') {
+                        let maxDate = sbuRecords.reduce((max, obj) => {
+                            if (selPeriode !== "ALL" && !String(obj.TanggalBayar).startsWith(selPeriode)) return max;
+                            return obj.TanggalBayar > max ? obj.TanggalBayar : max;
+                        }, '2000-01-01');
+                        let record = sbuRecords.find(d => d.TanggalBayar === maxDate);
+                        if(record) { grandTgtRev += Number(record.Target_Rev_Akumulasi) || 0; grandTgtTrx += Number(record.Target_Trx_Akumulasi) || 0; }
+                    } else if (currentTab === 'standalone') {
+                        let recordsToSum = sbuRecords;
+                        if (selPeriode !== "ALL") recordsToSum = sbuRecords.filter(d => String(d.TanggalBayar).startsWith(selPeriode));
+                        let uniqueMonths = [...new Set(recordsToSum.map(d => String(d.TanggalBayar).substring(0,7)))];
+                        uniqueMonths.forEach(m => {
+                            let record = recordsToSum.find(d => String(d.TanggalBayar).startsWith(m));
+                            if(record) { grandTgtRev += Number(record.Target_Rev_Standalone) || 0; grandTgtTrx += Number(record.Target_Trx_Standalone) || 0; }
+                        });
+                    }
+                });
+
+                if (grandTgtRev > 0) {
+                    let pctRev = ((totalRev / grandTgtRev) * 100).toFixed(1);
+                    let badgeRev = document.getElementById("targetRevBadge");
+                    badgeRev.innerText = `${pctRev}%`;
+                    badgeRev.className = `absolute top-5 right-5 text-xs font-bold px-2 py-1 rounded transition-all duration-300 shadow-md ${pctRev >= 100 ? 'bg-green-900/70 text-green-300' : 'bg-yellow-900/70 text-yellow-300'}`;
+                    badgeRev.classList.remove('hidden');
+                } else { document.getElementById("targetRevBadge").classList.add('hidden'); }
+
+                if (grandTgtTrx > 0) {
+                    let pctTrx = ((totalTrx / grandTgtTrx) * 100).toFixed(1);
+                    let badgeTrx = document.getElementById("targetTrxBadge");
+                    badgeTrx.innerText = `${pctTrx}%`;
+                    badgeTrx.className = `absolute top-5 right-5 text-xs font-bold px-2 py-1 rounded transition-all duration-300 shadow-md ${pctTrx >= 100 ? 'bg-purple-900/70 text-purple-300' : 'bg-yellow-900/70 text-yellow-300'}`;
+                    badgeTrx.classList.remove('hidden');
+                } else { document.getElementById("targetTrxBadge").classList.add('hidden'); }
+            } else {
+                document.getElementById("targetRevBadge").classList.add('hidden');
+                document.getElementById("targetTrxBadge").classList.add('hidden');
+            }
+
+            let labelRev = "Total Revenue"; let labelTrx = "Total Transaksi";
+            if (currentTab === 'akumulasi') { labelRev += " Akumulasi"; labelTrx += " Akumulasi"; }
+            else if (currentTab === 'standalone') { labelRev += " Standalone"; labelTrx += " Standalone"; }
+            else if (currentTab === 'recurring') { labelRev += " Recurring"; labelTrx += " Recurring"; }
+            
+            document.getElementById("labelMetricRev").innerText = labelRev;
+            document.getElementById("labelMetricTrx").innerText = labelTrx;
+            
+            let duration = 800; 
+            animateValue("metricFollowup", 0, totalFollowup, duration, (val) => val.toLocaleString('id-ID') + " Pelanggan");
+            animateValue("metricRevAcc", 0, totalRev, duration, (val) => formatRupiah(val));
+            animateValue("metricTrx", 0, totalTrx, duration, (val) => val.toLocaleString('id-ID'));
+
+            let modeLabel = document.getElementById("chartModeLabel");
+            if(selPeriode === "ALL") { modeLabel.innerText = "Mode: Bulanan (Aggregasi per Bulan)"; } 
+            else { modeLabel.innerText = `Mode: Harian (${formatNamaBulan(selPeriode)})`; }
+
+            let addPctTextLine = showTargetLine ? " & % Pencapaian" : "";
+            document.getElementById("titleChartAcc").innerText = "📈 Trajektori Pertumbuhan Kumulatif" + addPctTextLine;
+            document.getElementById("titleChartSA").innerText = "📈 Tren Stand-Alone" + addPctTextLine;
+
+            renderCharts(selPeriode, processed.dailyTotals, showTargetLine);
+        }
+
+        function formatRupiah(angka) {
+            return "Rp " + Math.round(angka).toLocaleString('id-ID');
+        }
+
+        function formatShortValue(val) {
+            if (currentMetric === 'revenue') {
+                if (val >= 1e9) return (val / 1e9).toFixed(1).replace('.', ',') + ' M';
+                if (val >= 1e6) return (val / 1e6).toFixed(0) + ' Jt';
+                if (val >= 1e3) return (val / 1e3).toFixed(0) + ' Rb';
+                return val;
+            } else {
+                if (val >= 1e3) return (val / 1e3).toFixed(1).replace('.', ',') + ' K';
+                return val.toLocaleString('id-ID');
+            }
+        }
+
+        // ==========================================
+        // Rendering Chart Utama
+        // ==========================================
+        function renderCharts(selPeriode, dailyTotals, showTargetLine) {
+            let selSBU = document.getElementById("filterSBU").value;
+            let isRev = (currentMetric === 'revenue');
+
+            let keys = Object.keys(dailyTotals).sort();
+            let labelsFormatted = []; let chartVals = []; let chartPcts = []; 
+
+            if (selPeriode === "ALL") {
+                let monthlyData = {};
+                keys.forEach(dateStr => {
+                    let mStr = dateStr.substring(0,7);
+                    if (!monthlyData[mStr]) monthlyData[mStr] = { val:0, tgt:0 };
+                    
+                    let d = dailyTotals[dateStr];
+                    if (currentTab === 'akumulasi') {
+                        if( (isRev ? d.rev_acc : d.trx_acc) > monthlyData[mStr].val ) {
+                            monthlyData[mStr].val = isRev ? d.rev_acc : d.trx_acc;
+                            monthlyData[mStr].tgt = isRev ? d.tgt_rev_acc : d.tgt_trx_acc;
+                        }
+                    } else if (currentTab === 'standalone') {
+                        monthlyData[mStr].val += isRev ? d.rev_sa : d.trx_sa;
+                        let t = isRev ? d.tgt_rev_sa : d.tgt_trx_sa;
+                        if(t > monthlyData[mStr].tgt) monthlyData[mStr].tgt = t;
+                    } else if (currentTab === 'recurring') {
+                        monthlyData[mStr].val += isRev ? d.rev_rec : d.trx_rec;
+                    }
+                });
+
+                Object.keys(monthlyData).sort().forEach(m => {
+                    labelsFormatted.push(formatNamaBulan(m));
+                    let v = monthlyData[m].val; let t = monthlyData[m].tgt;
+                    chartVals.push(v); chartPcts.push(t > 0 ? ((v/t)*100).toFixed(1) : 0);
+                });
+            } else {
+                keys.forEach(k => {
+                    let parts = k.split('-');
+                    labelsFormatted.push(parts[2] ? parts[2] : k);
+                    let d = dailyTotals[k];
+                    
+                    let v = 0; let t = 0;
+                    if (currentTab === 'akumulasi') { v = isRev ? d.rev_acc : d.trx_acc; t = isRev ? d.tgt_rev_acc : d.tgt_trx_acc; } 
+                    else if (currentTab === 'standalone') { v = isRev ? d.rev_sa : d.trx_sa; t = isRev ? d.tgt_rev_sa : d.tgt_trx_sa; } 
+                    else if (currentTab === 'recurring') { v = isRev ? d.rev_rec : d.trx_rec; t = 0; }
+                    
+                    chartVals.push(v); chartPcts.push(t > 0 ? ((v/t)*100).toFixed(1) : 0);
+                });
+            }
+
+            let mainColor = isRev ? '#10b981' : '#a855f7'; 
+            let bgAreaColor = isRev ? 'rgba(16, 185, 129, 0.12)' : 'rgba(168, 85, 247, 0.12)';
+            
+            let lineLabel = "";
+            if (currentTab === 'akumulasi') lineLabel = isRev ? 'Akumulasi Revenue' : 'Akumulasi Transaksi';
+            else if (currentTab === 'standalone') lineLabel = isRev ? 'Revenue Standalone' : 'Transaksi Standalone';
+            else if (currentTab === 'recurring') lineLabel = isRev ? 'Revenue Recurring' : 'Transaksi Recurring';
+
+            let datasets = [{
+                label: lineLabel, data: chartVals, borderColor: mainColor, backgroundColor: bgAreaColor,
+                borderWidth: 3, fill: true, tension: 0.25, yAxisID: 'y1', pointBackgroundColor: isRev ? '#6ee7b7' : '#c084fc',
+                pointRadius: 5, datalabels: { display: false }
+            }];
+
+            if(showTargetLine) {
+                datasets.push({
+                    label: '% Pencapaian Target', data: chartPcts, borderColor: '#3b82f6', backgroundColor: 'transparent',
+                    borderWidth: 2, tension: 0.25, yAxisID: 'y2', borderDash: [5, 5], pointBackgroundColor: '#2563eb', pointRadius: 4,
+                    datalabels: { align: 'top', anchor: 'center', color: '#93c5fd', font: { weight: 'bold', size: 10 }, formatter: (val) => val > 0 ? val + '%' : '' }
+                });
+            }
+
+            const customTooltipConfig = {
+                backgroundColor: 'rgba(15, 23, 42, 0.95)', titleFont: { size: 13, family: 'system-ui', weight: 'bold' },
+                bodyFont: { size: 12, family: 'system-ui' }, padding: 12, cornerRadius: 8, borderColor: 'rgba(51, 65, 85, 0.5)', borderWidth: 1, displayColors: true, boxPadding: 4
+            };
+
+            const dualAxisOptions = { 
+                responsive: true, maintainAspectRatio: false, animation: { duration: 1000, easing: 'easeOutQuart' },
+                interaction: { mode: 'index', intersect: false },
+                plugins: { 
+                    legend: { display: showTargetLine, labels: {color: '#8b949e'} },
+                    tooltip: {
+                        ...customTooltipConfig,
+                        callbacks: {
+                            label: function(ctx) {
+                                if (ctx.datasetIndex === 0) return isRev ? ` Realisasi: ${formatRupiah(ctx.raw)}` : ` Realisasi: ${ctx.raw.toLocaleString('id-ID')}`;
+                                return ` Pencapaian Target: ${ctx.raw}%`;
+                            }
+                        }
+                    }
+                }, 
+                scales: { 
+                    x: { ticks: { color: '#8b949e' } }, 
+                    y1: { type: 'linear', position: 'left', ticks: { color: '#8b949e', callback: (v) => formatShortValue(v) } },
+                    y2: { type: 'linear', position: 'right', display: showTargetLine, grid: { drawOnChartArea: false }, ticks: { color: '#60a5fa', callback: (v) => v + '%' } }
+                } 
+            };
+
+            if (currentTab === 'akumulasi') {
+                if(chartAcc) chartAcc.destroy();
+                chartAcc = new Chart(document.getElementById('chartAccumulated').getContext('2d'), { type: 'line', data: { labels: labelsFormatted, datasets: datasets }, options: dualAxisOptions });
+            } else if (currentTab === 'standalone') {
+                if(chartSA) chartSA.destroy();
+                chartSA = new Chart(document.getElementById('chartStandalone').getContext('2d'), { type: 'line', data: { labels: labelsFormatted, datasets: datasets }, options: dualAxisOptions });
+            } else if (currentTab === 'recurring') {
+                if(chartRec) chartRec.destroy();
+                chartRec = new Chart(document.getElementById('chartRecurring').getContext('2d'), { type: 'line', data: { labels: labelsFormatted, datasets: datasets }, options: dualAxisOptions });
+            }
+
+            let sbuBreakdown = getSBUBreakdown(selSBU, selPeriode);
+            let sortedItems = Object.keys(sbuBreakdown)
+                .map(k => ({ key: k, val: sbuBreakdown[k].val, tgt: sbuBreakdown[k].tgt, full: sbuBreakdown[k].full }))
+                .sort((a, b) => a.val - b.val); 
+
+            let barLabels = sortedItems.map(i => i.key);
+            let barValues = sortedItems.map(i => i.val);
+
+            let barGradColors = sortedItems.map((_, index) => {
+                let ratio = sortedItems.length > 1 ? index / (sortedItems.length - 1) : 1;
+                let alpha = 0.35 + (ratio * 0.65);
+                return isRev ? `rgba(16, 185, 129, ${alpha.toFixed(2)})` : `rgba(168, 85, 247, ${alpha.toFixed(2)})`;
+            });
+
+            let barOptions = { 
+                responsive: true, maintainAspectRatio: false, animation: { duration: 1000, easing: 'easeOutQuart' },
+                plugins: { 
+                    legend: { display: false },
+                    tooltip: {
+                        ...customTooltipConfig,
+                        callbacks: {
+                            title: function(context) {
+                                let item = sortedItems[context[0].dataIndex];
+                                return (selSBU !== "ALL") ? item.full : `${item.key} (${item.full})`;
+                            },
+                            label: function(context) {
+                                let val = context.raw; let item = sortedItems[context.dataIndex]; let t = item.tgt;
+                                let pctStr = (t > 0 && currentTab !== 'recurring') ? ` (${((val/t)*100).toFixed(1)}%)` : '';
+                                return isRev ? ` Revenue: ${formatRupiah(val)}${pctStr}` : ` Transaksi: ${val.toLocaleString('id-ID')}${pctStr}`;
+                            }
+                        }
+                    },
+                    datalabels: {
+                        align: 'top', anchor: 'end', color: '#fafafa', font: { weight: 'bold', size: 10 },
+                        formatter: (val, ctx) => {
+                            let str = formatShortValue(val);
+                            if (currentTab !== 'recurring') {
+                                let t = sortedItems[ctx.dataIndex].tgt;
+                                if (t > 0) { let pct = ((val/t)*100).toFixed(1); str += `\n(${pct}%)`; }
+                            }
+                            return str;
+                        }
+                    }
+                }, 
+                scales: { 
+                    x: { ticks: { color: '#8b949e' } }, 
+                    y: { ticks: { color: '#8b949e', callback: (v) => formatShortValue(v) }, suggestedMax: Math.max(...barValues) * 1.15 } 
+                } 
+            };
+
+            if (currentTab === 'akumulasi') {
+                if(chartSBUAcc) chartSBUAcc.destroy();
+                chartSBUAcc = new Chart(document.getElementById('chartSBUAcc').getContext('2d'), { type: 'bar', data: { labels: barLabels, datasets: [{ data: barValues, backgroundColor: barGradColors, borderRadius: 4 }] }, options: barOptions });
+            } else if (currentTab === 'standalone') {
+                if(chartSBU) chartSBU.destroy();
+                chartSBU = new Chart(document.getElementById('chartSBU').getContext('2d'), { type: 'bar', data: { labels: barLabels, datasets: [{ data: barValues, backgroundColor: barGradColors, borderRadius: 4 }] }, options: barOptions });
+            } else if (currentTab === 'recurring') {
+                if(chartSBURec) chartSBURec.destroy();
+                chartSBURec = new Chart(document.getElementById('chartSBURec').getContext('2d'), { type: 'bar', data: { labels: barLabels, datasets: [{ data: barValues, backgroundColor: barGradColors, borderRadius: 4 }] }, options: barOptions });
+            }
+        }
+    </script>
+</body>
+</html>
